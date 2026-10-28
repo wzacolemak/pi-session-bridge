@@ -1,0 +1,53 @@
+{
+  "name": "pi-session-bridge",
+  "version": "0.1.0",
+  "description": "Cross-machine session-to-session communication for the pi coding agent: a tiny zero-dependency message broker plus a pi extension exposing session_send / session_list / session_inbox tools (dsh-session-bridge style semantics: steer for urgent, queued followUp otherwise).",
+  "type": "module",
+  "license": "MIT",
+  "author": {
+    "name": "wzacolemak"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wzacolemak/pi-session-bridge.git"
+  },
+  "bugs": {
+    "url": "https://github.com/wzacolemak/pi-session-bridge/issues"
+  },
+  "keywords": [
+    "pi",
+    "pi-coding-agent",
+    "pi-package",
+    "extension",
+    "session-bridge",
+    "inter-agent",
+    "cross-machine",
+    "agent"
+  ],
+  "files": [
+    "src",
+    "broker",
+    "deploy",
+    "README.md",
+    "LICENSE"
+  ],
+  "dependencies": {
+    "typebox": "^1.1.0"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.73.0"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=16"
+  },
+  "pi": {
+    "extensions": [
+      "src/session-bridge.ts"
+    ]
+  }
+}

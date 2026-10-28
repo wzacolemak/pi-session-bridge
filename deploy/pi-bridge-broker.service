@@ -1,0 +1,15 @@
+# systemd user service — 常驻 broker
+# 拷贝到 ~/.config/systemd/user/ 后:
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now pi-bridge-broker
+# loginctl show-user $USER -p Linger   # 建议开启 Linger 使其不依赖登录会话
+[Unit]
+Description=pi session bridge broker (port 3777)
+[Service]
+ExecStart=/usr/bin/node %h/pi-bridge/broker.mjs
+# Environment=BRIDGE_TOKEN=change-me   # 跨网段部署务必设置
+# Environment=BRIDGE_PORT=3777
+Restart=always
+RestartSec=3
+[Install]
+WantedBy=default.target
