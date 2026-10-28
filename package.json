@@ -1,6 +1,6 @@
 {
   "name": "pi-session-bridge",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Cross-machine session-to-session communication for the pi coding agent: a tiny zero-dependency message broker plus a pi extension exposing session_send / session_list / session_inbox tools (dsh-session-bridge style semantics: steer for urgent, queued followUp otherwise).",
   "type": "module",
   "license": "MIT",

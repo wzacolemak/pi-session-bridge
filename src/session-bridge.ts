@@ -51,6 +51,7 @@ const MACHINE = (os.hostname().split(".")[0] || "unknown").toLowerCase();
 export default function (pi: ExtensionAPI) {
   let sessionId = "";
   let agentId = "";
+  let sessionName = "";
   let timer: ReturnType<typeof setInterval> | null = null;
   let tick = 0;
   let busy = false;
@@ -88,7 +89,7 @@ export default function (pi: ExtensionAPI) {
         machine: MACHINE,
         session: sessionId,
         cwd: ctx?.cwd || process.cwd(),
-        name: ctx?.sessionManager?.getSessionName?.() || "",
+        name: sessionName || ctx?.sessionManager?.getSessionName?.() || "",
         model: ctx?.model?.id || "",
       }),
     }).catch(() => {});
@@ -140,7 +141,13 @@ export default function (pi: ExtensionAPI) {
   pi.on?.("session_start", (...args: any[]) => {
     sessionId = "";
     agentId = "";
+    sessionName = args?.[1]?.sessionManager?.getSessionName?.() || "";
     startPolling(args?.[1]);
+  });
+  // /name 改名(或清除)时立即把新名字注册到 bridge
+  pi.on?.("session_info_changed", (e: any) => {
+    sessionName = e?.name || "";
+    register();
   });
   pi.on?.("session_shutdown", () => {
     if (timer) clearInterval(timer);
@@ -183,7 +190,7 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "session_list",
     description:
-      "列出 bridge 上全部已注册的 pi 会话(agentId、机器、工作目录、模型、是否在线)。",
+      "列出 bridge 上全部已注册的 pi 会话(agentId、/name 命名、工作目录、模型、是否在线)。",
     parameters: Type.Object({}),
     async execute() {
       if (!CONFIGURED)
@@ -192,7 +199,7 @@ export default function (pi: ExtensionAPI) {
         const r = await api("/sessions");
         const lines = (r.agents || []).map(
           (a: any) =>
-            `${a.online ? "[online] " : "[stale ] "}${a.agentId}  cwd=${a.cwd || "?"}  model=${a.model || "?"}`,
+            `${a.online ? "[online] " : "[stale ] "}${a.agentId}${a.name ? `  «${a.name}»` : ""}  cwd=${a.cwd || "?"}  model=${a.model || "?"}`,
         );
         const q = Object.entries(r.queues || {}).filter(([, n]) => (n as number) > 0);
         const ql = q.length ? `\n排队中: ${q.map(([k, n]) => `${k}(${n}条)`).join(", ")}` : "";
@@ -233,7 +240,7 @@ export default function (pi: ExtensionAPI) {
       try {
         const r = await api("/sessions");
         const lines = (r.agents || []).map(
-          (a: any) => `${a.online ? "●" : "○"} ${a.agentId}  ${a.cwd || ""}`,
+          (a: any) => `${a.online ? "●" : "○"} ${a.agentId}${a.name ? `  «${a.name}»` : ""}  ${a.cwd || ""}`,
         );
         await ctx?.ui?.notify?.(lines.join("\n") || "(empty)", "info");
       } catch (e: any) {
@@ -246,7 +253,7 @@ export default function (pi: ExtensionAPI) {
     description: "查看 session-bridge 状态",
     handler: async (_args: string, ctx: any) => {
       await ctx?.ui?.notify?.(
-        `bridge=${CONFIGURED ? BRIDGE_URL : "(未配置)"}\nagentId=${resolveAgentId(ctx)}\npolling=${timer ? "on" : "off"}${CONFIGURED ? ` (every ${POLL_MS}ms)` : ""}\ntoken=${TOKEN ? "yes" : "no"}`,
+        `bridge=${CONFIGURED ? BRIDGE_URL : "(未配置)"}\nagentId=${resolveAgentId(ctx)}\nname=${sessionName || ctx?.sessionManager?.getSessionName?.() || "(未命名, /name 设置)"}\npolling=${timer ? "on" : "off"}${CONFIGURED ? ` (every ${POLL_MS}ms)` : ""}\ntoken=${TOKEN ? "yes" : "no"}`,
         "info",
       );
     },
