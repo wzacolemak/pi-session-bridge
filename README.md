@@ -20,6 +20,10 @@
 | --- | --- |
 | `broker/broker.mjs` | 独立消息中继。零依赖，Node >= 16，单文件。维护注册表、按会话离线排队（上限 100 条/会话，溢出丢最旧）、在线状态（30s 心跳窗口）。 |
 | `src/session-bridge.ts` | pi 扩展。周期注册 + 拉取消息并注入会话；提供三个工具、两个斜杠命令。 |
+| `mcp/server.mjs` | stdio MCP server（零依赖，手工 JSON-RPC 2.0）。让 claude code / codex / gemini cli 等任何 MCP 客户端获得同款三个工具。 |
+| `deploy/claude-code-bridge-hook.mjs` | claude code Stop hook（可选）。回合结束时自动检查收件箱并把消息喂回会话，补上 MCP 拉取式的送达缺口。 |
+
+所有客户端共用同一个 broker 与消息语义：pi 会话、claude code、codex 之间可以互发消息。
 
 ## 安装
 
@@ -65,6 +69,50 @@ node ~/pi-bridge/broker.mjs          # 前台试跑
 
 broker 环境变量：`BRIDGE_PORT`（默认 3777）、`BRIDGE_TOKEN`（设置后所有请求须带
 `x-bridge-token` 头，扩展侧填配置里的 `token` 即可）。
+
+## 接入其它 agent（MCP）
+
+`mcp/server.mjs` 是零依赖 stdio MCP server，向任何 MCP 客户端暴露
+`session_send` / `session_list` / `session_inbox`。broker 地址按
+`BRIDGE_URL` 环境变量 → `~/.config/pi-bridge/config.json` →
+`~/.pi/agent/pi-bridge.json` 解析；身份默认 `<主机名>/mcp-<pid>-<rand>`，
+可用 `BRIDGE_AGENT_ID` 固定（配 `BRIDGE_AGENT_NAME` 显示名）。
+
+**claude code**
+
+```bash
+claude mcp add session-bridge -s user -e BRIDGE_URL=http://broker-host:3777 -- node /path/to/pi-session-bridge/mcp/server.mjs
+```
+
+可选（自动收信）：把 `deploy/claude-code-bridge-hook.mjs` 配置为 Stop hook，
+Claude 每次回合结束会自动检查收件箱，有消息则以反馈形式注入下一轮：
+
+```json
+{ "hooks": { "Stop": [ { "hooks": [ { "type": "command",
+  "command": "node /path/to/pi-session-bridge/deploy/claude-code-bridge-hook.mjs" } ] } ] } }
+```
+
+hook 身份是 `<主机名>/cc-<session_id>`；想让它与 MCP server 共享同一收件箱，
+给 MCP server 配 `BRIDGE_AGENT_ID` 与 hook 相同即可（hook 侧请固定
+`BRIDGE_AGENT_ID`，不能用含 session_id 的默认值）。
+
+**codex**（`~/.codex/config.toml`）
+
+```toml
+[mcp_servers.session-bridge]
+command = "node"
+args = ["/path/to/pi-session-bridge/mcp/server.mjs"]
+env = { BRIDGE_URL = "http://broker-host:3777" }
+```
+
+**其它 MCP 客户端**（gemini cli、cursor 等）同理：command 指向
+`node mcp/server.mjs`，env 给 `BRIDGE_URL`。
+
+MCP 模式为**拉取式**：消息不会自动进入会话，需要 agent 主动调
+`session_inbox`（建议在任务开始/结束各查一次），或像上面 claude code 那样
+用 Stop hook 自动化。跨 agent 互发时先 `session_list` 确认对端身份——
+pi 会话是 `<主机名>/<sessionId>`，MCP agent 是 `<主机名>/mcp-…` 或
+claude code 的 `<主机名>/cc-…`。
 
 ## 工具（agent 可调用）
 
