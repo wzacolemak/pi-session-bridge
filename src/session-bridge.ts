@@ -71,6 +71,21 @@ export default function (pi: ExtensionAPI) {
     return agentId;
   };
 
+  // 列表展示: 主机名/名字 优先(易读), 方括号内保留完整 agentId(供 session_send 复制);
+  // 未命名会话两者相同, 只显示 agentId
+  const displayLabel = (a: any): string => {
+    const nm = String(a?.name || "").trim();
+    const id = String(a?.agentId || "");
+    if (!nm) return id;
+    const host = id.split("/")[0] || "";
+    return `${host}/${nm}`;
+  };
+  const displayLine = (a: any, prefix: string): string => {
+    const label = displayLabel(a);
+    const addr = label === a.agentId ? "" : `  [${a.agentId}]`;
+    return `${prefix}${label}${addr}`;
+  };
+
   const api = async (p: string, init?: any) => {
     const res = await fetch(BRIDGE_URL + p, {
       ...init,
@@ -200,16 +215,16 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "session_list",
     description:
-      "列出 bridge 上全部已注册的 pi 会话(agentId、/name 命名、工作目录、模型、是否在线)。",
+      "列出 bridge 上全部已注册的 agent 会话。每行开头是 主机名/名称(/name 命名, 易读); 有名称时其后方括号内是发消息用的完整 agentId, 未命名会话则直接显示 agentId。另含 cwd、model、在线状态。",
     parameters: Type.Object({}),
     async execute() {
       if (!CONFIGURED)
         return { content: [{ type: "text", text: SETUP_HINT }], details: {} };
       try {
         const r = await api("/sessions");
-        const lines = (r.agents || []).map(
-          (a: any) =>
-            `${a.online ? "[online] " : "[stale ] "}${a.agentId}${a.name ? `  «${a.name}»` : ""}  cwd=${a.cwd || "?"}  model=${a.model || "?"}`,
+        const lines = (r.agents || []).map((a: any) =>
+          displayLine(a, `${a.online ? "[online] " : "[stale ] "}`) +
+          `  cwd=${a.cwd || "?"}  model=${a.model || "?"}`,
         );
         const q = Object.entries(r.queues || {}).filter(([, n]) => (n as number) > 0);
         const ql = q.length ? `\n排队中: ${q.map(([k, n]) => `${k}(${n}条)`).join(", ")}` : "";
@@ -251,7 +266,7 @@ export default function (pi: ExtensionAPI) {
       try {
         const r = await api("/sessions");
         const lines = (r.agents || []).map(
-          (a: any) => `${a.online ? "●" : "○"} ${a.agentId}${a.name ? `  «${a.name}»` : ""}  ${a.cwd || ""}`,
+          (a: any) => displayLine(a, `${a.online ? "●" : "○"} `) + `  ${a.cwd || ""}`,
         );
         await ctx?.ui?.notify?.(lines.join("\n") || "(empty)", "info");
       } catch (e: any) {

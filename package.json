@@ -1,6 +1,6 @@
 {
   "name": "pi-session-bridge",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Cross-machine session-to-session communication for the pi coding agent AND any MCP-capable agent (claude code / codex / ...): a zero-dependency message broker, a pi extension, and a stdio MCP server.",
   "type": "module",
   "license": "MIT",
