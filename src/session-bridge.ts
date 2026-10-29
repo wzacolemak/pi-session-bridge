@@ -52,15 +52,18 @@ export default function (pi: ExtensionAPI) {
   let sessionId = "";
   let agentId = "";
   let sessionName = "";
+  let lastCtx: any = null;
   let timer: ReturnType<typeof setInterval> | null = null;
   let tick = 0;
   let busy = false;
   const fallbackId = `p${process.pid}-${Math.random().toString(36).slice(2, 6)}`;
 
-  const resolveAgentId = (ctx?: any): string => {
+  const resolveAgentId = (ctxArg?: any): string => {
+    const ctx = ctxArg ?? lastCtx;
     if (!sessionId) {
       sessionId =
         ctx?.sessionManager?.getSessionId?.() ||
+        ctx?.sessionManager?.sessionId ||
         ctx?.sessionManager?.session?.id ||
         fallbackId;
     }
@@ -81,11 +84,12 @@ export default function (pi: ExtensionAPI) {
     return res.json();
   };
 
-  const register = (ctx?: any) =>
-    api("/register", {
+  const register = (ctxArg?: any) => {
+    const ctx = ctxArg ?? lastCtx;
+    return api("/register", {
       method: "POST",
       body: JSON.stringify({
-        agentId: resolveAgentId(ctx),
+        agentId: resolveAgentId(ctxArg),
         machine: MACHINE,
         session: sessionId,
         cwd: ctx?.cwd || process.cwd(),
@@ -93,6 +97,7 @@ export default function (pi: ExtensionAPI) {
         model: ctx?.model?.id || "",
       }),
     }).catch(() => {});
+  };
 
   const poll = async (ctx?: any): Promise<any[]> => {
     const r = await api(`/poll?agent=${encodeURIComponent(resolveAgentId(ctx))}`);
@@ -142,11 +147,16 @@ export default function (pi: ExtensionAPI) {
     sessionId = "";
     agentId = "";
     sessionName = args?.[1]?.sessionManager?.getSessionName?.() || "";
-    startPolling(args?.[1]);
+    lastCtx = args?.[1] || lastCtx;
+    // 模块加载时 startPolling 可能已启动(timer 已存在), 此时也必须用带 ctx 的
+    // 注册覆盖启动期的兜底身份, 否则 agentId 永远是 p<pid>-<rand> 且名字为空
+    if (timer) register(args?.[1]);
+    else startPolling(args?.[1]);
   });
   // /name 改名(或清除)时立即把新名字注册到 bridge
-  pi.on?.("session_info_changed", (e: any) => {
+  pi.on?.("session_info_changed", (e: any, ctx: any) => {
     sessionName = e?.name || "";
+    if (ctx) lastCtx = ctx;
     register();
   });
   pi.on?.("session_shutdown", () => {
@@ -216,6 +226,7 @@ export default function (pi: ExtensionAPI) {
       "立即取走发往本会话的排队消息(通常无需主动调用, 扩展周期性自动拉取并注入)。",
     parameters: Type.Object({}),
     async execute(_id, _params, _signal, _onUpdate, ctx) {
+      if (ctx) lastCtx = ctx;
       if (!CONFIGURED)
         return { content: [{ type: "text", text: SETUP_HINT }], details: {} };
       try {
