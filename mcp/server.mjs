@@ -16,7 +16,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const SERVER_INFO = { name: "pi-session-bridge", version: "0.2.0" };
+const SERVER_INFO = { name: "pi-session-bridge", version: "0.2.3" };
 const log = (...a) => process.stderr.write(`[pi-session-bridge-mcp] ${a.join(" ")}\n`);
 
 function loadConfig() {
@@ -91,9 +91,9 @@ function displayLine(a, prefix) {
 async function toolSessionList() {
   if (!BRIDGE_URL) return SETUP_HINT;
   const r = await bridge("/sessions");
-  const lines = (r.agents || []).map((a) =>
-    displayLine(a, `${a.online ? "[online] " : "[stale ] "}`) +
-    `  cwd=${a.cwd || "?"}  model=${a.model || "?"}`,
+  // broker 只返回活跃会话(死亡注册会被 GC); online!==false 过滤用于兼容旧版 broker
+  const lines = (r.agents || []).filter((a) => a.online !== false).map((a) =>
+    displayLine(a, "") + `  cwd=${a.cwd || "?"}  model=${a.model || "?"}`,
   );
   const q = Object.entries(r.queues || {}).filter(([, n]) => n > 0);
   const ql = q.length ? `\n排队中: ${q.map(([k, n]) => `${k}(${n}条)`).join(", ")}` : "";
@@ -125,7 +125,7 @@ const TOOLS = [
   },
   {
     name: "session_list",
-    description: "列出 bridge 上全部已注册的 agent 会话。每行开头是 主机名/名称(/name 命名, 易读); 有名称时其后方括号内是发消息用的完整 agentId, 未命名会话则直接显示 agentId。另含 cwd、model、在线状态。",
+    description: "列出 bridge 上当前活跃的 agent 会话(下线超过约 90 秒的会被 broker 自动清除)。每行开头是 主机名/名称(/name 命名, 易读); 有名称时其后方括号内是发消息用的完整 agentId, 未命名会话则直接显示 agentId。另含 cwd、model。",
     inputSchema: { type: "object", properties: {} },
   },
   {

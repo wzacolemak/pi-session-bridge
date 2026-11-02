@@ -215,17 +215,19 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "session_list",
     description:
-      "列出 bridge 上全部已注册的 agent 会话。每行开头是 主机名/名称(/name 命名, 易读); 有名称时其后方括号内是发消息用的完整 agentId, 未命名会话则直接显示 agentId。另含 cwd、model、在线状态。",
+      "列出 bridge 上当前活跃的 agent 会话(下线超过约 90 秒的会被 broker 自动清除)。每行开头是 主机名/名称(/name 命名, 易读); 有名称时其后方括号内是发消息用的完整 agentId, 未命名会话则直接显示 agentId。另含 cwd、model。",
     parameters: Type.Object({}),
     async execute() {
       if (!CONFIGURED)
         return { content: [{ type: "text", text: SETUP_HINT }], details: {} };
       try {
         const r = await api("/sessions");
-        const lines = (r.agents || []).map((a: any) =>
-          displayLine(a, `${a.online ? "[online] " : "[stale ] "}`) +
-          `  cwd=${a.cwd || "?"}  model=${a.model || "?"}`,
-        );
+        // broker 只返回活跃会话; online!==false 过滤用于兼容旧版 broker
+        const lines = (r.agents || [])
+          .filter((a: any) => a.online !== false)
+          .map((a: any) =>
+            displayLine(a, "") + `  cwd=${a.cwd || "?"}  model=${a.model || "?"}`,
+          );
         const q = Object.entries(r.queues || {}).filter(([, n]) => (n as number) > 0);
         const ql = q.length ? `\n排队中: ${q.map(([k, n]) => `${k}(${n}条)`).join(", ")}` : "";
         return { content: [{ type: "text", text: lines.join("\n") + ql }], details: {} };
@@ -260,15 +262,15 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerCommand?.("peers", {
-    description: "列出 bridge 上的全部 pi 会话",
+    description: "列出 bridge 上当前活跃的会话",
     handler: async (_args: string, ctx: any) => {
       if (!CONFIGURED) return void (await ctx?.ui?.notify?.(SETUP_HINT, "warning"));
       try {
         const r = await api("/sessions");
-        const lines = (r.agents || []).map(
-          (a: any) => displayLine(a, `${a.online ? "●" : "○"} `) + `  ${a.cwd || ""}`,
-        );
-        await ctx?.ui?.notify?.(lines.join("\n") || "(empty)", "info");
+        const lines = (r.agents || [])
+          .filter((a: any) => a.online !== false)
+          .map((a: any) => displayLine(a, "● ") + `  ${a.cwd || ""}`);
+        await ctx?.ui?.notify?.(lines.join("\n") || "(没有活跃会话)", "info");
       } catch (e: any) {
         await ctx?.ui?.notify?.(`bridge 不可达: ${e?.message || e}`, "warning");
       }

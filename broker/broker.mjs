@@ -4,7 +4,7 @@
 //   POST /register {agentId, machine, session, cwd, name, model}
 //   POST /send     {to, from, message, urgent}   to = agentId | "machine:<host>" | "all"
 //   GET  /poll?agent=<agentId>                   取走并清空该 agent 的队列(顺带心跳)
-//   GET  /sessions                               全部 agent(带 online 标记)
+//   GET  /sessions                               当前活跃 agent(死亡注册定期 GC)
 //   GET  /health
 // 可选: BRIDGE_TOKEN 环境变量 → 请求须带 x-bridge-token 头
 import http from "node:http";
@@ -18,6 +18,7 @@ const STATE_FILE = path.join(path.dirname(fileURLToPath(import.meta.url)), "stat
 const QUEUE_CAP = 100;        // 每 agent 离线排队上限(对齐 dsh maxPendingPerSession)
 const MSG_CAP = 20000;        // 单条正文上限(对齐 dsh maxMessageChars)
 const ONLINE_MS = 30 * 1000;  // lastSeen 超过此值视为 offline
+const STALE_MS = 90 * 1000;   // lastSeen 超过此值的注册视为已退出: 连同其离线队列一并清除
 
 const state = { agents: {}, queues: {} };
 try { state = { ...state, ...JSON.parse(fs.readFileSync(STATE_FILE, "utf8")) }; } catch {}
@@ -29,6 +30,22 @@ function save() {
   saveTimer = setTimeout(() => {
     try { fs.writeFileSync(STATE_FILE, JSON.stringify(state)); } catch {}
   }, 300);
+}
+
+// 活跃清理: 心跳停更超过 STALE_MS 的注册(已退出的会话进程)连同其离线队列一并删除;
+// /sessions 与 /send 前也会即时扫一遍。想给暂时离线的会话留言, 须在其下线后的
+// STALE_MS 窗口内发送, 否则目标会被当作未知 agent。
+function gc() {
+  const now = Date.now();
+  let dirty = false;
+  for (const [id, a] of Object.entries(state.agents)) {
+    if (now - (a.lastSeen || 0) > STALE_MS) {
+      delete state.agents[id];
+      delete state.queues[id];
+      dirty = true;
+    }
+  }
+  if (dirty) save();
 }
 
 function json(res, code, obj) {
@@ -60,6 +77,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === "POST" && url.pathname === "/send") {
+      gc(); // "all"/"machine:" 广播前清掉死注册, 避免投给尸体
       const b = await readBody(req);
       const message = String(b.message ?? "").slice(0, MSG_CAP);
       if (!b.to || !message) return json(res, 400, { error: "to/message required" });
@@ -93,9 +111,12 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === "GET" && url.pathname === "/sessions") {
+      gc();
       const now = Date.now();
+      // 只返回活跃会话; 30~90s 未心跳的暂时隐藏(队列仍保留), 超过 STALE_MS 的已被 gc 删除
       const agents = Object.entries(state.agents)
-        .map(([agentId, a]) => ({ ...a, online: now - (a.lastSeen || 0) < ONLINE_MS }))
+        .filter(([, a]) => now - (a.lastSeen || 0) < ONLINE_MS)
+        .map(([agentId, a]) => ({ ...a, online: true }))
         .sort((a, b) => (b.lastSeen || 0) - (a.lastSeen || 0));
       const queues = Object.fromEntries(Object.entries(state.queues).map(([k, v]) => [k, v.length]));
       return json(res, 200, { agents, queues });
@@ -111,3 +132,5 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, "0.0.0.0", () => console.log(`[pi-bridge] listening on :${PORT}`));
+gc();
+setInterval(gc, 30 * 1000); // 周期清理死亡注册
