@@ -9,14 +9,15 @@
 //   1. 环境变量 BRIDGE_URL / PI_BRIDGE_URL (可选 BRIDGE_TOKEN / PI_BRIDGE_TOKEN)
 //   2. ~/.config/pi-bridge/config.json  {bridgeUrl, token, agentName}
 //   3. ~/.pi/agent/pi-bridge.json       (与 pi 扩展共用)
-// 身份: 默认 <主机名>/mcp-<pid>-<rand>, 可用环境变量 BRIDGE_AGENT_ID 固定。
+// 身份: 默认 <主机名>/mcp-<pid>-<rand>, 可用环境变量 BRIDGE_AGENT_ID 固定;
+// 显示名自动取 MCP 握手的客户端名+目录名(如 claude-AgentSandbox), BRIDGE_AGENT_NAME 可覆盖。
 // 注意: MCP 是拉取式 — 收件消息需要 agent 主动调 session_inbox (见 README 的
 // claude code Stop-hook 示例可获得自动喂回)。
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const SERVER_INFO = { name: "pi-session-bridge", version: "0.2.3" };
+const SERVER_INFO = { name: "pi-session-bridge", version: "0.2.4" };
 const log = (...a) => process.stderr.write(`[pi-session-bridge-mcp] ${a.join(" ")}\n`);
 
 function loadConfig() {
@@ -41,7 +42,7 @@ const BRIDGE_URL = (CFG.bridgeUrl || "").replace(/\/+$/, "");
 const TOKEN = CFG.token || "";
 const MACHINE = (os.hostname().split(".")[0] || "unknown").toLowerCase();
 const AGENT_ID = process.env.BRIDGE_AGENT_ID || `${MACHINE}/mcp-${process.pid}-${Math.random().toString(36).slice(2, 6)}`;
-const AGENT_NAME = process.env.BRIDGE_AGENT_NAME || CFG.agentName || "";
+let agentName = process.env.BRIDGE_AGENT_NAME || CFG.agentName || ""; // initialize 握手时若仍为空, 自动补 "客户端名-目录名"
 
 if (!BRIDGE_URL) {
   log("BRIDGE_URL 未配置 (环境变量 BRIDGE_URL 或 ~/.config/pi-bridge/config.json), 工具调用将返回设置提示");
@@ -151,12 +152,22 @@ async function callTool(name, args) {
 function handle(msg) {
   const { id, method, params } = msg || {};
   switch (method) {
-    case "initialize":
+    case "initialize": {
+      // 从握手的 clientInfo 自动取可读显示名(claude-code → claude-<目录名>),
+      // 让 bridge 列表里的 MCP 会话不再是一串 mcp-<pid> 裸 ID; BRIDGE_AGENT_NAME 优先
+      if (!agentName && params?.clientInfo?.name) {
+        const raw = String(params.clientInfo.name).toLowerCase();
+        const client = raw.startsWith("claude") ? "claude" : raw;
+        const dir = path.basename(process.cwd());
+        agentName = [client, dir].filter(Boolean).join("-");
+        register();
+      }
       return {
         protocolVersion: params?.protocolVersion || "2024-11-05",
         capabilities: { tools: {} },
         serverInfo: SERVER_INFO,
       };
+    }
     case "ping":
       return {};
     case "tools/list":
@@ -234,7 +245,7 @@ function register() {
       machine: MACHINE,
       session: AGENT_ID.split("/")[1] || "",
       cwd: process.cwd(),
-      name: AGENT_NAME,
+      name: agentName,
       model: "mcp",
     }),
   }).catch(() => {});

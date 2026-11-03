@@ -111,8 +111,10 @@ env = { BRIDGE_URL = "http://broker-host:3777" }
 MCP 模式为**拉取式**：消息不会自动进入会话，需要 agent 主动调
 `session_inbox`（建议在任务开始/结束各查一次），或像上面 claude code 那样
 用 Stop hook 自动化。跨 agent 互发时先 `session_list` 确认对端身份——
-pi 会话是 `<主机名>/<sessionId>`，MCP agent 是 `<主机名>/mcp-…` 或
-claude code 的 `<主机名>/cc-…`。
+pi 会话是 `<主机名>/<sessionId>`，MCP agent 的 agentId 是 `<主机名>/mcp-…`
+（显示名自动取 `客户端名-目录名`，如 `kc-server-1/claude-AgentSandbox`；
+想固定名字可在 MCP 注册时设 `BRIDGE_AGENT_NAME`，claude code Stop hook
+身份为 `<主机名>/cc-…`）。
 
 ## 工具（agent 可调用）
 
