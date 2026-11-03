@@ -114,7 +114,9 @@ async function main(raw) {
       machine: MACHINE,
       session: sessionId,
       cwd: hook.cwd || process.cwd(),
-      pane: process.env.TMUX_PANE || "", // tmux 唤起器用
+      pane: process.env.TMUX_PANE || "",        // tmux 唤起器用
+      sty: process.env.STY || "",               // GNU screen 唤起器用
+      window: process.env.WINDOW === undefined ? "" : String(process.env.WINDOW),
     }),
   }).catch(() => null);
 

@@ -280,7 +280,9 @@ function register() {
       cwd: process.cwd(),
       name: agentName,
       model: "mcp",
-      pane: process.env.TMUX_PANE || "", // tmux 唤起器用: claude 在 tmux 里运行时自带
+      pane: process.env.TMUX_PANE || "",        // tmux 唤起器用: claude 在 tmux 里运行时自带
+      sty: process.env.STY || "",               // GNU screen 唤起器用: 会话名
+      window: process.env.WINDOW === undefined ? "" : String(process.env.WINDOW), // screen 窗口号
     }),
   }).catch(() => {});
 }
