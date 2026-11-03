@@ -21,7 +21,8 @@
 | `broker/broker.mjs` | 独立消息中继。零依赖，Node >= 16，单文件。维护注册表、按会话离线排队（上限 100 条/会话，溢出丢最旧）、活跃清理（30s 心跳窗口；停止心跳超过 90s 的注册连同其离线队列自动删除，退出即从列表消失）。 |
 | `src/session-bridge.ts` | pi 扩展。周期注册 + 拉取消息并注入会话；提供三个工具、两个斜杠命令。 |
 | `mcp/server.mjs` | stdio MCP server（零依赖，手工 JSON-RPC 2.0）。让 claude code / codex / gemini cli 等任何 MCP 客户端获得同款三个工具。 |
-| `deploy/claude-code-bridge-hook.mjs` | claude code Stop hook（可选）。回合结束时自动检查收件箱并把消息喂回会话，补上 MCP 拉取式的送达缺口。 |
+| `deploy/claude-code-bridge-hook.mjs` | claude code Stop hook（可选）。回合结束时自动检查收件箱并把消息喂回会话，补上 MCP 拉取式的送达缺口；与 MCP server 共享同一 agentId。 |
+| `deploy/claude-waker.mjs` | tmux 唤起器（可选，Linux）。常驻轮询 broker，把发往本机 claude 会话的消息用 `tmux send-keys` 敲进对应 pane 并回车——空闲中的 claude 立即被唤醒处理，TUI 不变。配 systemd 服务 `pi-bridge-waker`。 |
 
 所有客户端共用同一个 broker 与消息语义：pi 会话、claude code、codex 之间可以互发消息。
 
@@ -111,10 +112,17 @@ env = { BRIDGE_URL = "http://broker-host:3777" }
 MCP 模式为**拉取式**：消息不会自动进入会话，需要 agent 主动调
 `session_inbox`（建议在任务开始/结束各查一次），或像上面 claude code 那样
 用 Stop hook 自动化。跨 agent 互发时先 `session_list` 确认对端身份——
-pi 会话是 `<主机名>/<sessionId>`，MCP agent 的 agentId 是 `<主机名>/mcp-…`
-（显示名自动取 `客户端名-目录名`，如 `kc-server-1/claude-AgentSandbox`；
-想固定名字可在 MCP 注册时设 `BRIDGE_AGENT_NAME`，claude code Stop hook
-身份为 `<主机名>/cc-…`）。
+pi 会话是 `<主机名>/<sessionId>`；claude code 的 MCP server 与 Stop hook 共享
+同一个 agentId `<主机名>/cc-<锚定进程pid>`（两边沿父进程链跳过 shell 包装层
+取 claude 本体进程），显示名自动取 `客户端名-目录名`（如
+`kc-server-1/claude-AgentSandbox`），需要时可用 `BRIDGE_AGENT_ID` /
+`BRIDGE_AGENT_NAME` 固定。
+
+claude code 的送达与唤醒分两层：**正在工作**的会话由 Stop hook 在回合末喂回；
+**空闲休息**的会话部署 tmux 唤起器（`deploy/claude-waker.mjs`，systemd 用户服务
+`pi-bridge-waker`）——MCP server / hook 注册时写入 `TMUX_PANE`，waker 轮询到
+消息后用 `tmux send-keys` 敲进 pane 并回车，claude 立即开始处理。没有 tmux 的
+环境（如 Windows 本机），空闲消息只排队，等下次交互的回合末由 Stop hook 送达。
 
 ## 工具（agent 可调用）
 

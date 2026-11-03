@@ -9,15 +9,16 @@
 //   1. 环境变量 BRIDGE_URL / PI_BRIDGE_URL (可选 BRIDGE_TOKEN / PI_BRIDGE_TOKEN)
 //   2. ~/.config/pi-bridge/config.json  {bridgeUrl, token, agentName}
 //   3. ~/.pi/agent/pi-bridge.json       (与 pi 扩展共用)
-// 身份: 默认 <主机名>/mcp-<pid>-<rand>, 可用环境变量 BRIDGE_AGENT_ID 固定;
-// 显示名自动取 MCP 握手的客户端名+目录名(如 claude-AgentSandbox), BRIDGE_AGENT_NAME 可覆盖。
+// 身份: 默认 <主机名>/cc-<锚定进程pid>(与 Stop hook 共享, 见下方 anchorPid), 可用环境变量
+// BRIDGE_AGENT_ID 固定; 显示名自动取 MCP 握手的客户端名+目录名, BRIDGE_AGENT_NAME 可覆盖。
 // 注意: MCP 是拉取式 — 收件消息需要 agent 主动调 session_inbox (见 README 的
 // claude code Stop-hook 示例可获得自动喂回)。
+import child_process from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const SERVER_INFO = { name: "pi-session-bridge", version: "0.2.4" };
+const SERVER_INFO = { name: "pi-session-bridge", version: "0.2.5" };
 const log = (...a) => process.stderr.write(`[pi-session-bridge-mcp] ${a.join(" ")}\n`);
 
 function loadConfig() {
@@ -41,7 +42,39 @@ const CFG = loadConfig();
 const BRIDGE_URL = (CFG.bridgeUrl || "").replace(/\/+$/, "");
 const TOKEN = CFG.token || "";
 const MACHINE = (os.hostname().split(".")[0] || "unknown").toLowerCase();
-const AGENT_ID = process.env.BRIDGE_AGENT_ID || `${MACHINE}/mcp-${process.pid}-${Math.random().toString(36).slice(2, 6)}`;
+
+// 锚定到发起 agent 的进程: 沿父进程链跳过 shell 包装层(cmd/bash/pwsh...), 停在第一个
+// 非 shell 祖先(即 claude/codex 等本体进程)。MCP server 与 Stop hook 各自独立执行这段
+// 逻辑也会得到同一个 pid, 从而共享 <主机名>/cc-<锚pid> 这一个身份与收件箱。
+const SHELL_RE = /^(sh|bash|dash|zsh|fish|cmd|cmd\.exe|powershell|powershell\.exe|pwsh|pwsh\.exe)$/;
+function procInfo(pid) {
+  try {
+    if (process.platform === "win32") {
+      const out = child_process.execSync(
+        `powershell -NoProfile -Command "(Get-CimInstance Win32_Process -Filter \\"ProcessId=${pid}\\") | Select-Object Name,ParentProcessId | ConvertTo-Json -Compress"`,
+        { encoding: "utf8", timeout: 8000, windowsHide: true },
+      ).trim();
+      const j = JSON.parse(out || "{}");
+      return { name: String(j.Name || "").toLowerCase(), ppid: Number(j.ParentProcessId || 0) };
+    }
+    const name = fs.readFileSync(`/proc/${pid}/comm`, "utf8").trim().toLowerCase();
+    const stat = fs.readFileSync(`/proc/${pid}/stat`, "utf8");
+    const ppid = Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1]);
+    return { name, ppid };
+  } catch {
+    return null;
+  }
+}
+function anchorPid() {
+  let pid = process.ppid;
+  for (let i = 0; i < 3; i++) {
+    const info = procInfo(pid);
+    if (!info || !SHELL_RE.test(info.name) || !info.ppid) break;
+    pid = info.ppid;
+  }
+  return pid;
+}
+const AGENT_ID = process.env.BRIDGE_AGENT_ID || `${MACHINE}/cc-${anchorPid()}`;
 let agentName = process.env.BRIDGE_AGENT_NAME || CFG.agentName || ""; // initialize 握手时若仍为空, 自动补 "客户端名-目录名"
 
 if (!BRIDGE_URL) {
@@ -247,6 +280,7 @@ function register() {
       cwd: process.cwd(),
       name: agentName,
       model: "mcp",
+      pane: process.env.TMUX_PANE || "", // tmux 唤起器用: claude 在 tmux 里运行时自带
     }),
   }).catch(() => {});
 }

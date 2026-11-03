@@ -1,0 +1,11 @@
+[Unit]
+Description=pi-bridge claude waker (tmux send-keys)
+After=pi-bridge-broker.service
+
+[Service]
+ExecStart=/usr/local/bin/node /home/colemak/pi-bridge/deploy/claude-waker.mjs
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target
