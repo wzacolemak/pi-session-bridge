@@ -7,6 +7,7 @@
  * @module pi-session-bridge-dsh */
 import { createRequire } from 'node:module'
 import { realpathSync } from 'node:fs'
+import { pathToFileURL } from 'node:url'
 import os from 'node:os'
 
 // 从运行中的 dsh 进程解析 harness 包（与 dsh-session-bridge 相同的策略，
@@ -27,7 +28,8 @@ function resolveHarness (id, extraAnchors = []) {
   }
   throw new Error(`pi-session-bridge-dsh: cannot resolve runtime package "${id}"; install this package in a DSH profile or set DSH_RUNTIME_ENTRY (${errors[0]?.message ?? 'no anchor'})`)
 }
-const runtimeImport = async (id, extraAnchors = []) => await import(resolveHarness(id, extraAnchors))
+// Windows 下 ESM import() 不接受 C:\ 裸路径, 一律转 file:// URL
+const runtimeImport = async (id, extraAnchors = []) => await import(pathToFileURL(resolveHarness(id, extraAnchors)).href)
 
 // Import sequentially: CJS bridges can race concurrent ESM imports of shared
 // Cordis dependencies under Node 22.
