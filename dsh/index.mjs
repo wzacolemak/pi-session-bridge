@@ -39,7 +39,7 @@ const { default: z } = await runtimeImport('@deepseek-ai/schemastery', [llmAncho
 const { defineTool } = await runtimeImport('@deepseek-ai/dsh-tools')
 
 export const name = 'pi-session-bridge'
-export const inject = ['tools', 'agents', 'systemPrompt']
+export const inject = ['tools', 'agents', 'systemPrompt', 'commands']
 
 export const Config = z.object({
   /** broker 地址, 如 http://broker-host:3777; 留空时回退环境变量 PI_BRIDGE_URL/BRIDGE_URL */
@@ -342,10 +342,42 @@ function createRelay (ctx, config) {
 
   const guidance = `本机已安装 pi-session-bridge（dsh relay）：可与其它机器上的 pi / claude code 会话互发消息。session_list 列出 broker 上所有机器的活跃会话（每行含 主机/名称 与方括号内的完整 agentId）；session_send 向其它会话发消息（to=对方完整 agentId，或 machine:<主机名>、all；urgent=true 加急注入目标当前回合）；session_inbox 手动取件（通常无需调用——发往本机 dsh 会话的消息会自动以用户消息形态注入）。跨机消息消耗真实 API 额度；收到消息后用 session_send 回信（to 为消息头里的 from）。本机 dsh 会话的 bridge 身份是 <主机名>/dsh-<sessionId>。用户提到「跨机通信 / 给 pi 或 claude 发消息 / 会话间传消息」时即指本插件。`
 
+  /** /peers: 人看的会话清单（与 pi 扩展 /peers、MCP session_list 同格式）。 */
+  const peersCommand = async () => {
+    if (!BRIDGE_URL) return { kind: 'error', text: SETUP_HINT }
+    try {
+      const r = await api('/sessions')
+      const lines = (r.agents ?? [])
+        .filter(a => a.online !== false)
+        .map(a => {
+          const label = a.name ? `${a.machine}/${a.name}` : a.agentId
+          const addr = label === a.agentId ? '' : `  [${a.agentId}]`
+          return `${label}${addr}  cwd=${a.cwd || '?'}  model=${a.model || '?'}`
+        })
+      return { kind: 'success', text: lines.length ? lines.join('\n') : '(bridge 上没有活跃会话)' }
+    } catch (e) {
+      return { kind: 'error', text: `bridge 不可达: ${e?.message || e}` }
+    }
+  }
+
+  /** /bridge: 本端 relay 状态（对齐 pi 扩展的 /bridge）。 */
+  const bridgeCommand = () => ({
+    kind: 'success',
+    text: [
+      `bridge=${BRIDGE_URL || '(未配置)'}`,
+      `machine=${MACHINE}`,
+      '身份格式=<主机>/dsh-<sessionId>',
+      `polling=every ${pollMs}ms`,
+      `token=${TOKEN ? 'yes' : 'no'}`,
+    ].join('\n'),
+  })
+
   return {
     tools: [sendTool, listTool, inboxTool],
     guidance,
     startPolling,
+    peersCommand,
+    bridgeCommand,
   }
 }
 
@@ -367,5 +399,20 @@ export function apply (ctx, config) {
     const disposers = relay.tools.map(tool => ctx.tools.register(tool))
     return () => { for (const dispose of disposers) dispose() }
   }, 'pi-session-bridge: tools')
+  ctx.effect(() => {
+    const disposers = [
+      ctx.commands.register({
+        name: 'peers',
+        description: '列出 pi-session-bridge 上所有机器的活跃会话',
+        handler: () => relay.peersCommand(),
+      }),
+      ctx.commands.register({
+        name: 'bridge',
+        description: '查看 pi-session-bridge relay 状态',
+        handler: () => relay.bridgeCommand(),
+      }),
+    ]
+    return () => { for (const dispose of disposers) dispose() }
+  }, 'pi-session-bridge: commands')
   ctx.effect(() => relay.startPolling(), 'pi-session-bridge: poller')
 }
