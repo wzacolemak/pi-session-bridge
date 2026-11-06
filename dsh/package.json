@@ -1,0 +1,42 @@
+{
+  "name": "pi-session-bridge-dsh",
+  "version": "0.3.0",
+  "description": "pi-session-bridge relay for DeepSeek Harness (dsh): registers dsh sessions to the pi-session-bridge broker so dsh, pi, and claude code sessions can exchange messages across machines.",
+  "type": "module",
+  "license": "MIT",
+  "author": {
+    "name": "wzacolemak"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wzacolemak/pi-session-bridge.git"
+  },
+  "bugs": {
+    "url": "https://github.com/wzacolemak/pi-session-bridge/issues"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "pi-session-bridge",
+    "session-bridge",
+    "inter-agent",
+    "cross-machine"
+  ],
+  "files": [
+    "index.mjs",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "main": "index.mjs",
+  "exports": {
+    ".": "./index.mjs"
+  },
+  "engines": {
+    "node": "^22.19 || >=24"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

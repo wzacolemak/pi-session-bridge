@@ -23,6 +23,7 @@
 | `mcp/server.mjs` | stdio MCP server（零依赖，手工 JSON-RPC 2.0）。让 claude code / codex / gemini cli 等任何 MCP 客户端获得同款三个工具。 |
 | `deploy/claude-code-bridge-hook.mjs` | claude code Stop hook（可选）。回合结束时自动检查收件箱并把消息喂回会话，补上 MCP 拉取式的送达缺口；与 MCP server 共享同一 agentId。 |
 | `deploy/claude-waker.mjs` | 唤起器（可选，Linux）。常驻轮询 broker，把发往本机 claude 会话的消息注入其输入通道并回车——空闲中的 claude 立即被唤醒处理。多策略：tmux pane（`send-keys`）→ GNU screen（`stuff -p <窗口号>`）；裸终端/VS Code/Windows 无安全注入原语，消息留给 Stop hook 回合末送达。配 systemd 服务 `pi-bridge-waker`。 |
+| `dsh/` | dsh（DeepSeek Harness）relay 插件（可选）。把 dsh 会话接入 broker（身份 `<主机名>/dsh-<sessionId>`，冷会话也注册可收排队消息），活跃会话自动注入收件（urgent→steer / 普通→followup），提供同名三工具，与 pi / claude code 互发。 |
 
 所有客户端共用同一个 broker 与消息语义：pi 会话、claude code、codex 之间可以互发消息。
 
@@ -108,6 +109,26 @@ env = { BRIDGE_URL = "http://broker-host:3777" }
 
 **其它 MCP 客户端**（gemini cli、cursor 等）同理：command 指向
 `node mcp/server.mjs`，env 给 `BRIDGE_URL`。
+
+### dsh（DeepSeek Harness）relay 插件（可选）
+
+```bash
+dsh plugin --profile web add /path/to/pi-session-bridge/dsh
+dsh plugin --profile headless add /path/to/pi-session-bridge/dsh
+```
+
+然后在 profile 的 `cordis.patch.yml` 追加：
+
+```yaml
+- id: pi-session-bridge
+  config:
+    bridgeUrl: http://broker-host:3777
+```
+
+dsh 会话获得与 pi/MCP 同名的 `session_send` / `session_list` / `session_inbox`
+工具（经 `session/…` 注册进全局工具表，对所有 agent preset 可见），bridge 身份
+为 `<主机名>/dsh-<sessionId>`。注意与 `dsh-session-bridge`（机箱内插件）二选一，
+工具名不冲突但语义重叠。
 
 MCP 模式为**拉取式**：消息不会自动进入会话，需要 agent 主动调
 `session_inbox`（建议在任务开始/结束各查一次），或像上面 claude code 那样

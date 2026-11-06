@@ -1,0 +1,5 @@
+# Profile bundle entry. 部署专属配置（bridgeUrl / pollMs 等）放 profile 的
+# user patch 层: - id: pi-session-bridge / config: { bridgeUrl: ... }
+- insert:
+    - id: pi-session-bridge
+      name: pi-session-bridge-dsh
