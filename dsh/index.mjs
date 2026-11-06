@@ -1,7 +1,9 @@
 /** pi-session-bridge dsh relay — 把 dsh 会话接入 pi-session-bridge broker，
  * 与其它机器上的 pi / claude code / 任意 MCP agent 互发消息。
- * 每个顶层 dsh 会话映射为 bridge 身份 `<主机名>/dsh-<sessionId>`：
- * 全部会话周期注册（冷会话可随时 resume，消息在 broker 排队不丢），
+ * 每个活跃的顶层 dsh 会话映射为 bridge 身份 `<主机名>/dsh-<sessionId>`：
+ * 只注册 live 会话（历史冷会话不注册——否则一个活进程会把全部历史条目
+ * 的心跳刷着, broker 列表塞满 ● 尸体; 会话被打开时 ≤3s 内自动注册上线,
+ * 离线留言窗口与全舰队一致 = 下线后 90s）。
  * 活跃会话周期 poll 收件并以 steer(urgent)/followup 注入。
  * 与 dsh-session-bridge（机箱内插件）互补而非替代，二者请勿同时安装（工具名会冲突）。
  * @module pi-session-bridge-dsh */
@@ -143,9 +145,10 @@ function createRelay (ctx, config) {
     busy = true
     try {
       const sessions = await listTopLevel()
-      // 全部会话注册心跳(冷会话也在 bridge 列表可见、可收排队消息; dsh 会话被
-      // 删除后不再注册, 90s 后被 broker TTL 清除)。注册失败静默。
-      for (const s of sessions) {
+      // 只注册 live 会话: 历史冷会话注册会让 broker 列表塞满 ● 尸体（一个活进程
+      // 持续刷新全部历史条目的心跳）。dsh 会话在 GUI/任务中打开时 relay 会在
+      // ≤3s 内把它注册上线; 会话关闭后心跳停止, 90s 后被 broker TTL 清除。
+      for (const s of sessions.filter(e => e.live)) {
         api('/register', {
           method: 'POST',
           body: JSON.stringify({
@@ -158,7 +161,7 @@ function createRelay (ctx, config) {
           }),
         }).catch(() => {})
       }
-      // 只对活跃会话取件; 冷会话的消息留在 broker 队列, 会话激活后自动送达
+      // 取件同样只针对活跃会话
       for (const s of sessions.filter(e => e.live)) {
         const inbox = await api(`/poll?agent=${encodeURIComponent(bridgeIdOf(s.sessionId))}`).catch(() => null)
         if (!inbox || !(inbox.messages || []).length) continue
