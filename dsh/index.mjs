@@ -114,6 +114,21 @@ function createRelay (ctx, config) {
 
   const listTopLevel = makeListTopLevel(ctx)
 
+  /** 从活会话事件流折叠最新标题（session/title 事件; 自动标题不进 header.title）。
+   * 标题事件可能在长会话事件流的开头, 必须全量扫描（线性遍历开销可忽略）。 */
+  const titleFromAgent = (agent) => {
+    try {
+      const events = agent?.session?.snapshotEvents?.()
+      if (!Array.isArray(events)) return ''
+      for (let i = events.length - 1; i >= 0; i--) {
+        const e = events[i]
+        const t = e?.type === 'session/title' ? e?.data?.title : undefined
+        if (typeof t === 'string' && t.trim()) return t.trim().slice(0, 80)
+      }
+    } catch { /* 事件流不可读时退回 header.title */ }
+    return ''
+  }
+
   /** 把一条跨机消息作为用户消息注入活跃 agent（不属于任何发起方的子链）。 */
   const deliverLive = (agent, m) => {
     const text = [
@@ -149,6 +164,8 @@ function createRelay (ctx, config) {
       // 持续刷新全部历史条目的心跳）。dsh 会话在 GUI/任务中打开时 relay 会在
       // ≤3s 内把它注册上线; 会话关闭后心跳停止, 90s 后被 broker TTL 清除。
       for (const s of sessions.filter(e => e.live)) {
+        const agent = ctx.agents.get(s.sessionId)
+        const name = (agent ? titleFromAgent(agent) : '') || s.title
         api('/register', {
           method: 'POST',
           body: JSON.stringify({
@@ -156,7 +173,7 @@ function createRelay (ctx, config) {
             machine: MACHINE,
             session: s.sessionId,
             cwd: s.cwd,
-            name: s.title,
+            name,
             model: 'dsh',
           }),
         }).catch(() => {})
